@@ -10,6 +10,7 @@ extends Node3D
 ##   {"cmd":"eval","expr":"..."}              evaluate an expression on the main node
 ##   {"cmd":"pose"}                           head position / forward direction
 ##   {"cmd":"shot"}                           base64 PNG of what the headset shows
+##   {"cmd":"put","path":"user://..","text":..} / {"cmd":"get","path":..}   files in user://
 ## A live script may declare `var main` to be handed the main node (fish, reef, sfx, hands...).
 
 const PORT := 34960
@@ -185,6 +186,24 @@ func _handle(line: String) -> Dictionary:
 			if e.has_execute_failed():
 				return {"ok": false, "error": e.get_error_text()}
 			return {"ok": true, "result": var_to_str(r)}
+		"put":
+			# write a file into the app's own storage (user:// only), e.g. a robot save
+			var path := str(msg.get("path", ""))
+			if not path.begins_with("user://") or ".." in path:
+				return {"ok": false, "error": "user:// paths only"}
+			DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+			var f := FileAccess.open(path, FileAccess.WRITE)
+			if f == null:
+				return {"ok": false, "error": "cannot write " + path}
+			f.store_string(str(msg.get("text", "")))
+			f.close()
+			add_line("received " + path.get_file())
+			return {"ok": true}
+		"get":
+			var gp := str(msg.get("path", ""))
+			if not gp.begins_with("user://") or ".." in gp or not FileAccess.file_exists(gp):
+				return {"ok": false, "error": "no such user:// file"}
+			return {"ok": true, "text": FileAccess.get_file_as_string(gp)}
 		"pose":
 			var h: Transform3D = main.head_transform()
 			return {"ok": true, "head": var_to_str(h.origin), "forward": var_to_str(-h.basis.z)}

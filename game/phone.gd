@@ -13,27 +13,15 @@ const BASE_TICKS := 90
 const SPEEDS := [1.0, 2.0, 3.0, 4.0, 6.0]
 
 
-class LogSink:
-	## Stands in for the headset's live link: robots.gd reports each generation here.
-	var lines: Array[String] = []
-	var label: Label
-
-	func add_line(s: String) -> void:
-		lines.append(s)
-		while lines.size() > 5:
-			lines.remove_at(0)
-		if label:
-			label.text = "\n".join(lines)
-
-
-var link := LogSink.new()
+const Link := preload("res://link.gd")
+var link: Link
+var log_label: Label
+var log_seen := ""
 var fish: Fish
 var reef: Reef
 var sfx: Sfx
 var hands: Array = []
 var camera: Camera3D
-var live: Node3D
-var gyms: Array = []
 var yaw := 0.0
 var pitch := -0.35
 var dist := 14.0
@@ -71,16 +59,21 @@ func _ready() -> void:
 	camera.far = 80.0
 	add_child(camera)
 	camera.add_child(reef.make_snow())
-	live = Node3D.new()
-	live.name = "Live"
-	add_child(live)
-	for nm in ["robots", "robots_v2"]:
-		var g = Robots.new()
-		g.name = nm
-		g.main = self
-		live.add_child(g)
-		gyms.append(g)
+	# the same live link as the headset (127.0.0.1:34960 on the phone; reach it with adb forward).
+	# Its 3D board is hidden; the lines show in the log panel instead.
+	link = Link.new()
+	link.main = self
+	add_child(link)
+	link.board.visible = false
 	_build_ui()
+	await get_tree().process_frame   # the link adds its Live root and restores saved live scripts
+	await get_tree().process_frame
+	for nm in ["robots", "robots_v2"]:
+		if link.live_root.get_node_or_null(nm) == null:
+			var g = Robots.new()
+			g.name = nm
+			g.main = self
+			link.live_root.add_child(g)
 	_update_camera(1.0)
 	if shots_dir != "":
 		_run_test()
@@ -162,7 +155,7 @@ func _build_ui() -> void:
 	log_label.custom_minimum_size = Vector2(900, 200)
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	log_bg.add_child(log_label)
-	link.label = log_label
+	self.log_label = log_label
 	link.add_line("Drag to orbit, pinch to zoom, two fingers to pan.")
 	_build_book(root)
 	_apply_speed(0)
@@ -182,7 +175,9 @@ func _look_at_gym(which: int) -> void:
 		focus_goal = Vector3(0, 1.2, -7.0)
 		dist = 14.0
 	else:
-		var g = gyms[which]
+		var g = link.live_root.get_node_or_null(["robots", "robots_v2"][which])
+		if g == null:
+			return
 		focus_goal = g.arena.global_position + Vector3(0, 0.4, 0)
 		dist = 8.0
 	yaw = 0.0
@@ -342,6 +337,11 @@ func _process(scaled_dt: float) -> void:
 		actual = ticks / win_t / BASE_TICKS
 		ticks = 0
 		win_t = 0.0
+	# the link keeps only its last 16 lines, so watch the newest line rather than the count
+	var newest: String = link.lines[-1] if not link.lines.is_empty() else ""
+	if newest != log_seen:
+		log_seen = newest
+		log_label.text = "\n".join(link.lines.slice(-5))
 	var fps := Engine.get_frames_per_second()
 	if level > 0 and settle <= 0.0 and fps < 40:
 		slow_t += dt
@@ -377,5 +377,5 @@ func _run_test() -> void:
 	_turn(1)
 	await get_tree().create_timer(0.5 * Engine.time_scale).timeout
 	await _shot("phone_book")
-	print("gyms ", gyms[0].rules, gyms[1].rules, " fish ", fish.fish_count())
+	print("gyms ", link.live_root.get_node("robots").rules, link.live_root.get_node("robots_v2").rules, " fish ", fish.fish_count())
 	get_tree().quit()

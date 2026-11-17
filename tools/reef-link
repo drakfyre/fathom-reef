@@ -4,11 +4,13 @@
   reef-link run NAME FILE.gd      build FILE.gd into the scene as live node NAME
   reef-link rm NAME | list | pose
   reef-link eval "expr"           evaluate on the main node (fish, reef, sfx, hands, link...)
-  reef-link shot OUT.png          what the headset shows"""
-import base64, json, socket, sys
+  reef-link shot OUT.png          what the headset shows
+  reef-link put|get user://PATH LOCAL   copy a file into / out of the app
+  REEF_PORT=34961 reef-link ...   talk to the phone through `adb forward tcp:34961 tcp:34960`"""
+import base64, json, os, socket, sys
 
 def call(msg, timeout=20):
-    s = socket.create_connection(("127.0.0.1", 34960), timeout=timeout)
+    s = socket.create_connection(("127.0.0.1", int(os.environ.get("REEF_PORT", "34960"))), timeout=timeout)
     s.sendall((json.dumps(msg) + "\n").encode())
     buf = b""
     while not buf.endswith(b"\n"):
@@ -33,6 +35,13 @@ elif c in ("list", "pose"):
     r = call({"cmd": c})
 elif c == "eval":
     r = call({"cmd": "eval", "expr": " ".join(a[1:])})
+elif c == "put":   # put USER_PATH LOCAL_FILE
+    r = call({"cmd": "put", "path": a[1], "text": open(a[2]).read()})
+elif c == "get":   # get USER_PATH LOCAL_FILE
+    r = call({"cmd": "get", "path": a[1]})
+    if r.get("ok"):
+        open(a[2], "w").write(r.pop("text"))
+        r["saved"] = a[2]
 elif c == "shot":
     r = call({"cmd": "shot"})
     if r.get("ok"):
