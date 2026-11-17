@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building Fathom Reef with Claude</title>
+<meta name="description" content="The full Claude Code session that built Fathom Reef: a VR underwater reef, a live-coding link, a book on neural networks and a robot gym that learns to walk, all from a Quest 3 headset.">
+<style>
+:root {
+  --bg: #0c1117; --panel: #121a23; --line: #22303d; --text: #d7e0e8; --dim: #8496a6;
+  --pink: #ff8fc4; --green: #5fd38a; --red: #ff6b6b; --blue: #78b8ff; --code: #0a0f14;
+}
+:root[data-theme="light"] {
+  --bg: #f7f9fb; --panel: #ffffff; --line: #d9e1e8; --text: #1b2733; --dim: #5d6f80;
+  --pink: #c2337a; --green: #1f8a4c; --red: #c62828; --blue: #1d5fb8; --code: #eef2f6;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f7f9fb; --panel: #ffffff; --line: #d9e1e8; --text: #1b2733; --dim: #5d6f80;
+    --pink: #c2337a; --green: #1f8a4c; --red: #c62828; --blue: #1d5fb8; --code: #eef2f6;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+header h1 { font-size: 26px; margin: 8px 0 6px; color: var(--pink); }
+header p { color: var(--dim); margin: 6px 0; font-family: system-ui, sans-serif; }
+.links { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.links a, button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 14px; text-decoration: none; font: inherit; cursor: pointer; }
+.links a.primary { border-color: var(--pink); color: var(--pink); }
+.bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0;
+  border-bottom: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bar .count { color: var(--dim); margin-left: auto; font-size: 13px; }
+.ev { margin: 14px 0; }
+.user { border-left: 3px solid var(--pink); background: var(--panel); padding: 10px 14px; border-radius: 0 8px 8px 0;
+  white-space: pre-wrap; word-wrap: break-word; }
+.user::before { content: "❯ "; color: var(--pink); font-weight: bold; }
+.user .tag { display: block; color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+.say { padding-left: 22px; position: relative; font-family: system-ui, sans-serif; }
+.say::before { content: "●"; position: absolute; left: 2px; top: 0; color: var(--text); }
+.say p { margin: 0 0 10px; }
+.say code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.say pre { background: var(--code); padding: 10px; border-radius: 6px; overflow-x: auto; }
+.say pre code { padding: 0; }
+.say table { border-collapse: collapse; margin: 8px 0; display: block; overflow-x: auto; }
+.say th, .say td { border: 1px solid var(--line); padding: 4px 8px; }
+details.tool { margin: 6px 0 6px 0; }
+details.tool > summary { cursor: pointer; list-style: none; padding: 3px 0; color: var(--dim); overflow-wrap: anywhere; }
+details.tool > summary::-webkit-details-marker { display: none; }
+details.tool > summary .dot { color: var(--green); }
+details.tool.err > summary .dot { color: var(--red); }
+details.tool > summary .name { color: var(--text); font-weight: bold; }
+details.tool > summary .arrow { display: inline-block; width: 1em; transition: transform .15s; }
+details.tool[open] > summary .arrow { transform: rotate(90deg); }
+.tbody { border-left: 1px solid var(--line); margin-left: 6px; padding: 4px 0 4px 14px; }
+pre.cmd, pre.out { margin: 6px 0; padding: 10px; border-radius: 6px; white-space: pre-wrap;
+  word-break: break-word; max-height: 480px; overflow: auto; font-size: 13px; }
+pre.cmd { background: var(--code); color: var(--text); }
+pre.out { background: transparent; border: 1px dashed var(--line); color: var(--dim); }
+.imgs { display: grid; gap: 8px; margin: 6px 0 10px 22px; }
+.imgs img { width: 100%; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; }
+.ts { color: var(--dim); font-size: 12px; }
+footer { color: var(--dim); margin-top: 40px; font-family: system-ui, sans-serif; font-size: 14px; }
+.hidetools details.tool { display: none; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Building Fathom Reef with Claude</h1>
+  <p>This is the complete, unedited working session in which Claude (Claude Code, running in Termux on a Meta Quest 3 called "Fathom") built a VR app from spoken requests. It covers a cute underwater reef, a live link that let Claude build into the app while Jazzy was inside it, a page-turning book on how neural networks work, robots that learn to walk by evolution, stable fast-forward, and phone, web and desktop versions.</p>
+  <p>Jazzy's messages were dictated, so they read like speech. Click any grey line to unfold what Claude actually ran and what came back, just like in the terminal. Screenshots are the app's own test shots and phone captures.</p>
+  <div class="links">
+    <a class="primary" href="play/">▶ Play Reef Gym in your browser</a>
+    <a href="https://github.com/drakfyre/fathom-reef/releases/latest">Downloads (Quest, Android, Windows, Linux, Mac)</a>
+    <a href="https://github.com/drakfyre/fathom-reef">Source code</a>
+  </div>
+</header>
+<div class="bar">
+  <button id="expand">Expand all</button>
+  <button id="collapse">Collapse all</button>
+  <button id="tools">Hide tool calls</button>
+  <button id="theme" title="Switch light/dark">◐</button>
+  <span class="count" id="count"></span>
+</div>
+<div id="log">Loading the transcript…</div>
+<footer>
+  Left out of this page: Claude's private reasoning, hidden system context (personal settings and contact details), and two phone screenshots of a personal home screen.
+  Everything else is exactly as it happened on 17 November 2026.
+</footer>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+const log = document.getElementById('log');
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function time(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return isNaN(d) ? '' : d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+function md(text) {
+  try { return marked.parse(text, {mangle: false, headerIds: false}); }
+  catch (e) { const p = el('p', null, text); return p.outerHTML; }
+}
+fetch('transcript.json').then(r => r.json()).then(events => {
+  log.textContent = '';
+  let tools = 0;
+  for (const ev of events) {
+    const box = el('div', 'ev');
+    if (ev.k === 'user') {
+      const u = el('div', 'user');
+      if (ev.mid) u.appendChild(el('span', 'tag', 'sent while Claude was working'));
+      u.appendChild(document.createTextNode(ev.text));
+      box.appendChild(u);
+    } else if (ev.k === 'say') {
+      const s = el('div', 'say');
+      s.innerHTML = md(ev.text);
+      box.appendChild(s);
+    } else if (ev.k === 'tool') {
+      tools++;
+      const d = el('details', 'tool' + (ev.err ? ' err' : ''));
+      const sum = el('summary');
+      sum.appendChild(el('span', 'arrow', '›'));
+      sum.appendChild(el('span', 'dot', '● '));
+      sum.appendChild(el('span', 'name', ev.name));
+      if (ev.title) sum.appendChild(document.createTextNode('  ' + ev.title));
+      const t = time(ev.ts);
+      if (t) { sum.appendChild(document.createTextNode('  ')); sum.appendChild(el('span', 'ts', t)); }
+      d.appendChild(sum);
+      const body = el('div', 'tbody');
+      if (ev.body) body.appendChild(el('pre', 'cmd', ev.body));
+      if (ev.out) body.appendChild(el('pre', 'out', ev.out));
+      if (!ev.body && !ev.out) body.appendChild(el('pre', 'out', '(no text output)'));
+      d.appendChild(body);
+      box.appendChild(d);
+      if (ev.imgs && ev.imgs.length) {
+        const g = el('div', 'imgs');
+        for (const src of ev.imgs) {
+          const a = el('a'); a.href = src; a.target = '_blank';
+          const im = el('img'); im.src = src; im.loading = 'lazy'; im.alt = 'screenshot';
+          a.appendChild(im); g.appendChild(a);
+        }
+        box.appendChild(g);
+      }
+    }
+    log.appendChild(box);
+  }
+  document.getElementById('count').textContent = `${events.length} entries · ${tools} tool calls`;
+}).catch(e => { log.textContent = 'Could not load transcript.json: ' + e; });
+document.getElementById('expand').onclick = () => document.querySelectorAll('details.tool').forEach(d => d.open = true);
+document.getElementById('collapse').onclick = () => document.querySelectorAll('details.tool').forEach(d => d.open = false);
+document.getElementById('tools').onclick = (e) => {
+  const on = document.body.classList.toggle('hidetools');
+  e.target.textContent = on ? 'Show tool calls' : 'Hide tool calls';
+};
+document.getElementById('theme').onclick = () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme ? r.dataset.theme === 'dark' : !matchMedia('(prefers-color-scheme: light)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+};
+</script>
+</body>
+</html>

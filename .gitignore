@@ -8,3 +8,4 @@ third_party/openxr_loader/aar/
 third_party/openxr_loader/*.aar
 shots/
 reefgym.apk
+tools/.private_redact.json
