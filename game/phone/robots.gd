@@ -85,6 +85,7 @@ class Species:
 	var history: Array = []       # best distance of every generation (whole run)
 	var scores: Array = []        # every robot's distance, every generation
 	var trained := 0.0            # seconds of training so far
+	var timeline: Array = []      # champion snapshots {gen, fit, g}: gen 1, every 10th, and records
 	var n_in := 0
 	var n_out := 0
 	var fall_h := 0.0
@@ -538,6 +539,13 @@ func _evolve(s: Species) -> void:
 				child[i] = b[i]
 		next.append(_mutate(child, 0.15 if STAGE >= 3 else 0.5))
 	s.genomes = next
+	# evolution timeline: keep the champion's whole network at generation 1, every 10th
+	# generation, and whenever it sets a record (at most one record snapshot per 5 generations)
+	var done_gen := s.gen + 1
+	var last_snap: int = int(s.timeline[-1].gen) if not s.timeline.is_empty() else -999
+	var is_record := best.fitness >= s.record - 1e-6
+	if done_gen == 1 or done_gen % 10 == 0 or (is_record and done_gen - last_snap >= 5):
+		s.timeline.append({"gen": done_gen, "fit": snappedf(best.fitness, 0.001), "g": Array(best.genome)})
 	s.gen += 1
 	_save()
 	_spawn_generation(s)
@@ -589,7 +597,7 @@ func _save() -> void:
 			gs.append(Array(g))
 		d[s.name] = {"gen": s.gen, "record": s.record, "history": s.history, "scores": s.scores,
 				"trained_s": s.trained, "inputs": s.n_in, "outputs": s.n_out, "genomes": gs,
-				"record_genome": Array(s.record_genome)}
+				"record_genome": Array(s.record_genome), "timeline": s.timeline}
 	var f := FileAccess.open(save_path + ".tmp", FileAccess.WRITE)
 	if f == null:
 		return
@@ -607,8 +615,8 @@ func _notification(what: int) -> void:
 
 
 func _load() -> void:
-	# the phone build ships a copy of the headset's training as a starting point
-	for path in [save_path, save_path + ".bak", "res://phone/seed_" + save_path.get_file()]:
+	# (the flat builds copy Fathom's training into user:// only if the player chooses to continue it)
+	for path in [save_path, save_path + ".bak"]:
 		if FileAccess.file_exists(path):
 			var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 			if d is Dictionary:
@@ -630,6 +638,7 @@ func _apply(d: Dictionary) -> void:
 		s.record = float(e.get("record", -999.0))
 		s.history = e.get("history", [])
 		s.scores = e.get("scores", [])
+		s.timeline = e.get("timeline", [])
 		s.trained = float(e.get("trained_s", 0.0))
 		s.record_genome = PackedFloat32Array(e.get("record_genome", []))
 		for g: Array in e.get("genomes", []):

@@ -10,7 +10,11 @@ const Sfx := preload("res://sfx.gd")
 const Robots := preload("res://phone/robots.gd")
 const BookScript := preload("res://phone/book.gd")
 const BASE_TICKS := 90
-const SPEEDS := [1.0, 2.0, 3.0, 4.0, 6.0]
+const Timeline := preload("res://phone/timeline.gd")
+# the PC trainer build (feature "trainer") gets higher speeds and accepts the headset over the LAN
+var trainer := OS.has_feature("trainer") or OS.get_environment("REEF_TRAINER") == "1"
+var SPEEDS: Array = [1.0, 2.0, 4.0, 8.0, 16.0] if trainer else [1.0, 2.0, 3.0, 4.0, 6.0]
+const SAVES := ["user://robots.json", "user://robots_v2.json"]
 
 
 const Link := preload("res://link.gd")
@@ -43,12 +47,21 @@ var book_spread := 0
 var book_content: Array = []
 var swipe_from := Vector2.ZERO
 var shots_dir := ""
+var start_panel: Control
+var confirm: ConfirmationDialog
+var tl_bar: VBoxContainer
+var tl_species_btn: Button
+var tl_gym_btn: Button
+var code_label: Label
+var test_continue := false
 
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shots="):
 			shots_dir = a.substr(8)
+		elif a == "--continue":
+			test_continue = true
 	reef = Reef.new()
 	add_child(reef)
 	fish = Fish.new()
@@ -68,15 +81,82 @@ func _ready() -> void:
 	_build_ui()
 	await get_tree().process_frame   # the link adds its Live root and restores saved live scripts
 	await get_tree().process_frame
+	_update_camera(1.0)
+	if shots_dir != "":
+		_choose(test_continue)
+		_run_test()
+	elif link.live_root.get_node_or_null("robots") != null or _has_saves():
+		_start_gyms()
+	else:
+		_show_start()
+
+
+func _has_saves() -> bool:
+	for p in SAVES:
+		if FileAccess.file_exists(p):
+			return true
+	return false
+
+
+func _start_gyms() -> void:
 	for nm in ["robots", "robots_v2"]:
 		if link.live_root.get_node_or_null(nm) == null:
 			var g = Robots.new()
 			g.name = nm
 			g.main = self
 			link.live_root.add_child(g)
-	_update_camera(1.0)
-	if shots_dir != "":
-		_run_test()
+	if link.live_root.get_node_or_null("timeline") == null:
+		var t = Timeline.new()
+		t.name = "timeline"
+		t.main = self
+		link.live_root.add_child(t)
+
+
+func _seed_info() -> String:
+	var d: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://phone/seed_robots.json")) \
+			if FileAccess.file_exists("res://phone/seed_robots.json") else null
+	if not d is Dictionary or not d.has("spider"):
+		return ""
+	return "spider generation %d, humanoid %d" % [int(d.spider.gen), int(d.humanoid.gen)]
+
+
+func _show_start() -> void:
+	start_panel.visible = true
+
+
+func _choose(cont: bool) -> void:
+	if start_panel:
+		start_panel.visible = false
+	if cont:
+		for p in SAVES:
+			var src: String = "res://phone/seed_" + p.get_file()
+			if FileAccess.file_exists(src):
+				var f := FileAccess.open(p, FileAccess.WRITE)
+				f.store_string(FileAccess.get_file_as_string(src))
+				f.close()
+		link.add_line("Continuing Fathom's training (%s)." % _seed_info())
+	else:
+		link.add_line("Starting from zero: every brain begins as random numbers.")
+	_start_gyms()
+
+
+func _reset() -> void:
+	## Back to the start screen: removes the gyms, the timeline and all training on this device.
+	_apply_speed(0)
+	for nm in ["robots", "robots_v2", "timeline"]:
+		var n := link.live_root.get_node_or_null(nm)
+		if n:
+			n.queue_free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for p in SAVES:
+		for ext in ["", ".bak", ".tmp"]:
+			DirAccess.remove_absolute(p + ext)
+	for nm in ["robots", "robots_v2", "timeline"]:
+		DirAccess.remove_absolute("user://live/%s.gd" % nm)
+	tl_bar.visible = false
+	link.add_line("Training reset.")
+	_show_start()
 
 
 func head_transform() -> Transform3D:
@@ -143,6 +223,8 @@ func _build_ui() -> void:
 	side.add_child(_btn("Classic", func() -> void: _look_at_gym(0)))
 	side.add_child(_btn("Both", func() -> void: _look_at_gym(-1)))
 	side.add_child(_btn("New rules", func() -> void: _look_at_gym(1)))
+	side.add_child(_btn("Timeline", _look_at_timeline))
+	side.add_child(_btn("Restart", func() -> void: confirm.popup_centered()))
 	for c in side.get_children():
 		(c as Button).custom_minimum_size = Vector2(220, 72)
 	var log_bg := PanelContainer.new()
@@ -158,7 +240,110 @@ func _build_ui() -> void:
 	self.log_label = log_label
 	link.add_line("Drag to orbit, pinch to zoom, two fingers to pan.")
 	_build_book(root)
+	_build_start(root)
+	_build_timeline_bar(root)
+	confirm = ConfirmationDialog.new()
+	confirm.title = "Restart training?"
+	confirm.dialog_text = "This deletes all training on this device and goes back to the start screen."
+	confirm.ok_button_text = "Restart"
+	confirm.confirmed.connect(_reset)
+	root.add_child(confirm)
+	if trainer:
+		code_label = Label.new()
+		code_label.add_theme_font_size_override("font_size", 24)
+		code_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+		code_label.position = Vector2(24, 104)
+		root.add_child(code_label)
+		var ips: Array[String] = []
+		for a in IP.get_local_addresses():
+			if a.count(".") == 3 and not a.begins_with("127.") and not a.begins_with("169.254."):
+				ips.append(a)
+		code_label.text = "Trainer link: %s port %d   code %s" % [", ".join(ips), link.PORT, link.token] \
+				if link.server.is_listening() else "Trainer link closed"
 	_apply_speed(0)
+
+
+func _build_start(root: Control) -> void:
+	# full-screen dimmer (blocks the camera and buttons) with the choice centred on it
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.03, 0.06, 0.7)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.visible = false
+	root.add_child(dim)
+	start_panel = dim
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.add_child(center)
+	var panel := PanelContainer.new()
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	panel.add_child(box)
+	var h := Label.new()
+	h.text = "Reef Gym"
+	h.add_theme_font_size_override("font_size", 48)
+	h.add_theme_color_override("font_color", Color(1.0, 0.75, 0.9))
+	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(h)
+	var t := Label.new()
+	t.text = "Robots with tiny neural networks learn to walk by evolution.\nHow do you want to start?"
+	t.add_theme_font_size_override("font_size", 28)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(t)
+	var a := _btn("Watch them learn from zero", _choose.bind(false))
+	a.custom_minimum_size = Vector2(760, 84)
+	box.add_child(a)
+	var info := _seed_info()
+	if info != "":
+		var b := _btn("Continue Fathom's training (%s)" % info, _choose.bind(true))
+		b.custom_minimum_size = Vector2(760, 84)
+		b.add_theme_font_size_override("font_size", 26)
+		box.add_child(b)
+
+
+func _build_timeline_bar(root: Control) -> void:
+	tl_bar = VBoxContainer.new()
+	tl_bar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tl_bar.position = Vector2(-250, 532)
+	tl_bar.add_theme_constant_override("separation", 10)
+	tl_bar.visible = false
+	root.add_child(tl_bar)
+	tl_species_btn = _btn("Spider", _toggle_tl_species)
+	tl_species_btn.custom_minimum_size = Vector2(220, 64)
+	tl_bar.add_child(tl_species_btn)
+	tl_gym_btn = _btn("Classic", _toggle_tl_gym)
+	tl_gym_btn.custom_minimum_size = Vector2(220, 64)
+	tl_bar.add_child(tl_gym_btn)
+
+
+func _timeline() -> Node:
+	return link.live_root.get_node_or_null("timeline")
+
+
+func _look_at_timeline() -> void:
+	var t = _timeline()
+	if t == null or t.arena == null:
+		return
+	focus_goal = t.arena.global_position + Vector3(0, 0.4, 0)
+	dist = 9.0
+	yaw = 0.0
+	pitch = -0.35
+	tl_bar.visible = true
+
+
+func _toggle_tl_species() -> void:
+	var t = _timeline()
+	if t:
+		t.set_view(t.gym_name, "humanoid" if t.species_name == "spider" else "spider")
+		tl_species_btn.text = t.species_name.capitalize()
+
+
+func _toggle_tl_gym() -> void:
+	var t = _timeline()
+	if t:
+		t.set_view("robots_v2" if t.gym_name == "robots" else "robots", t.species_name)
+		tl_gym_btn.text = "New rules" if t.gym_name == "robots_v2" else "Classic"
 
 
 func _apply_speed(i: int) -> void:
@@ -171,6 +356,7 @@ func _apply_speed(i: int) -> void:
 
 
 func _look_at_gym(which: int) -> void:
+	tl_bar.visible = false
 	if which < 0:
 		focus_goal = Vector3(0, 1.2, -7.0)
 		dist = 14.0
@@ -343,7 +529,7 @@ func _process(scaled_dt: float) -> void:
 		log_seen = newest
 		log_label.text = "\n".join(link.lines.slice(-5))
 	var fps := Engine.get_frames_per_second()
-	if level > 0 and settle <= 0.0 and fps < 40:
+	if level > 0 and settle <= 0.0 and fps < (15 if trainer else 40):
 		slow_t += dt
 		if slow_t > 2.0:
 			link.add_line("Phone can't keep up at %d×, stepping down" % int(SPEEDS[level]))
@@ -367,15 +553,35 @@ func _shot(nm: String) -> void:
 func _run_test() -> void:
 	for i in 90:
 		await get_tree().process_frame
+	var g = link.live_root.get_node("robots")
+	print("start gens: classic spider %d, new spider %d" % [g.species.spider.gen, link.live_root.get_node("robots_v2").species.spider.gen])
 	await _shot("phone_both")
-	_look_at_gym(1)
-	for i in 40:
+	# fake a few champion snapshots so the timeline has something to show right away
+	for sp in ["spider", "humanoid"]:
+		var s = g.species[sp]
+		s.timeline.clear()
+		for k in 5:
+			s.timeline.append({"gen": 1 + k * 10, "fit": 0.1 * k, "g": Array(s.genomes[k % s.genomes.size()])})
+	_look_at_timeline()
+	var t = _timeline()
+	t.set_view("robots", "spider")
+	for i in 120:
 		await get_tree().process_frame
-	await _shot("phone_new")
+	print("timeline robots: ", t.robots.size(), " board: ", t.board.text.get_slice("\n", 0))
+	await _shot("timeline_spider")
+	_toggle_tl_species()
+	for i in 120:
+		await get_tree().process_frame
+	print("timeline robots: ", t.robots.size(), " (", t.species_name, ")")
+	await _shot("timeline_humanoid")
 	_open_book()
-	_turn(1)
 	_turn(1)
 	await get_tree().create_timer(0.5 * Engine.time_scale).timeout
 	await _shot("phone_book")
-	print("gyms ", link.live_root.get_node("robots").rules, link.live_root.get_node("robots_v2").rules, " fish ", fish.fish_count())
+	book_layer.visible = false
+	await _reset()
+	await get_tree().process_frame
+	print("after reset: saves left %s, gyms %s, start screen %s" % [_has_saves(), link.live_root.get_node_or_null("robots") != null, start_panel.visible])
+	await get_tree().create_timer(0.3 * Engine.time_scale).timeout
+	await _shot("start_screen")
 	get_tree().quit()

@@ -30,6 +30,11 @@ var dot_mat: StandardMaterial3D
 var last_msg := -100.0
 var clock := 0.0
 var shot_waiters: Array[StreamPeerTCP] = []
+# PC trainer build: listens on the whole local network, so every request must carry a 6-digit
+# code shown on screen; three wrong codes close the link until the app is restarted.
+var lan := OS.has_feature("trainer") or OS.get_environment("REEF_TRAINER") == "1"
+var token := ""
+var bad_codes := 0
 
 
 func _ready() -> void:
@@ -37,8 +42,15 @@ func _ready() -> void:
 	live_root.name = "Live"
 	main.add_child.call_deferred(live_root)
 	_make_board()
-	var err := server.listen(PORT, "127.0.0.1")
-	add_line("link %s on 127.0.0.1:%d" % ["listening" if err == OK else "FAILED (%d)" % err, PORT])
+	var host := "127.0.0.1"
+	if lan:
+		var b := Crypto.new().generate_random_bytes(4)
+		token = "%06d" % (b.decode_u32(0) % 1000000)
+		host = "*"
+	var err := server.listen(PORT, host)
+	if lan:
+		print("trainer link code: ", token)
+	add_line("link %s on %s:%d" % ["listening" if err == OK else "FAILED (%d)" % err, host, PORT])
 	_restore.call_deferred()
 
 
@@ -158,6 +170,14 @@ func _handle(line: String) -> Dictionary:
 	var msg: Variant = JSON.parse_string(line)
 	if not msg is Dictionary:
 		return {"ok": false, "error": "bad json"}
+	if lan and str(msg.get("token", "")) != token:
+		bad_codes += 1
+		if bad_codes >= 3:
+			server.stop()
+			for p in peers:
+				p.disconnect_from_host()
+			add_line("link CLOSED after 3 wrong codes; restart the app to reopen it")
+		return {"ok": false, "error": "wrong code"}
 	var cmd: String = msg.get("cmd", "")
 	match cmd:
 		"log":

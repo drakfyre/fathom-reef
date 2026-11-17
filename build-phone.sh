@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p game/phone build
-cp live/robots.gd live/book.gd game/phone/
+cp live/robots.gd live/book.gd live/timeline.gd game/phone/
 echo "[1/3] Exporting from Godot"
 rm -f build/phone.apk
 godot --headless --path game --export-release Phone ../build/phone.apk 2>&1 | grep -E 'ERROR|rror:' | grep -v daemon || true

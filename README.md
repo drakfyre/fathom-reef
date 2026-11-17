@@ -14,6 +14,8 @@ A cozy VR underwater reef full of cute fish for Meta Quest, plus a robot gym whe
 | **Live link** | A tiny local server (`127.0.0.1:34960`) that lets Claude compile and add new GDScript to the running app, post steps to an in-world build log, inspect values, and move files (`tools/reef-link`). The book and the robots below were built this way while Jazzy was inside the app. |
 | **The book** | 13 illustrated pages on how deep neural networks work. In VR you pinch a page with the trigger and drag it, and the paper bends as it turns. |
 | **Robot gym** | Dog-sized four-legged spider tanks and 1.7 m humanoids. Each has a small neural network (sensors → 16 hidden neurons → motor targets) trained by evolution. Two gyms run side by side with different scoring rules. Training is saved and resumes. |
+| **Evolution timeline** | Each gym saves its champion's network at generation 1, every 10th generation and on new records. A fifth stage replays up to five champions side by side, from the first to the latest. |
+| **Start fresh or continue** | The flat versions ask on first launch: watch the robots learn from zero, or continue the training done on the headset. **Restart** wipes local training. |
 | **Fast-forward** | Up to 4× training speed without making physics steps bigger: time scale and physics tick rate rise together, so every step stays 1/90 s. |
 
 ## Builds
@@ -32,7 +34,7 @@ VR controls: left stick swim; right stick turn / rise and sink; trigger sprinkle
 
 ## Building
 
-Godot 4.7.2, Compatibility renderer. `./build.sh` makes the Quest APK without Gradle: Godot exports, then apktool adds the Khronos OpenXR loader and the Quest manifest entries. `./build-phone.sh` makes the phone APK. The Web, Windows, Linux and macOS presets are in `game/export_presets.cfg`.
+Godot 4.7.2, Compatibility renderer. `./build.sh` makes the Quest APK without Gradle: Godot exports, then apktool adds the Khronos OpenXR loader and the Quest manifest entries. `./build-flat.sh` makes the phone APK and the Web, Windows, Linux and macOS builds (presets in `game/export_presets.cfg`). The `Trainer` preset is a Windows build whose live link listens on the local network, protected by a 6-digit code shown on screen; `tools/pull-from-pc.sh` copies its training into the built-in starting point.
 
 `tools/make_transcript_page.py` turns a Claude Code session file into `docs/`.
 
