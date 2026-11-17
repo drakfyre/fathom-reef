@@ -2,14 +2,18 @@
 """Turns a Claude Code session file (.jsonl) into docs/transcript.json + docs/img/*, which
 docs/index.html renders like the terminal: prompts, replies, and fold-out tool calls.
 
-usage: tools/make_transcript_page.py SESSION.jsonl docs/ ["first words of the last user message to include"]
+usage: tools/make_transcript_page.py SESSION.jsonl docs/ [TAIL_FROM [LAST]]
+  TAIL_FROM: first words of a user message; after it only the user's own messages are kept
+  LAST:      first words of the final user message to include (defaults to TAIL_FROM)
 
 Left out on purpose: Claude's hidden reasoning, system context (it carries private settings and
 contact details), image-size notes, and portrait phone screenshots (home screen / app drawer)."""
 import base64, json, os, re, struct, sys
 
 src, out = sys.argv[1], sys.argv[2]
-stop_at = sys.argv[3] if len(sys.argv) > 3 else None   # transcript ends with this user message
+tail_from = sys.argv[3] if len(sys.argv) > 3 else None
+last_msg = sys.argv[4] if len(sys.argv) > 4 else tail_from
+tail = False   # after tail_from: user messages only
 img_dir = os.path.join(out, "img")
 os.makedirs(img_dir, exist_ok=True)
 for f in os.listdir(img_dir):
@@ -81,6 +85,9 @@ for line in open(src):
             txt = clean(a["prompt"])
             if txt:
                 events.append({"k": "user", "text": txt, "mid": True, "ts": ts})
+                tail = tail or bool(tail_from and txt.startswith(tail_from))
+                if last_msg and txt.startswith(last_msg):
+                    done = True
         continue
     if t not in ("user", "assistant"):
         continue
@@ -90,11 +97,14 @@ for line in open(src):
         txt = clean(c)
         if txt and not txt.startswith("[Image: original") and not txt.startswith("<command-"):
             events.append({"k": "user", "text": txt, "ts": ts})
-            if stop_at and txt.startswith(stop_at):
+            tail = tail or bool(tail_from and txt.startswith(tail_from))
+            if last_msg and txt.startswith(last_msg):
                 done = True
         continue
     if not isinstance(c, list):
         continue
+    if tail:
+        continue   # only the user's own messages from here on
     for b in c:
         if not isinstance(b, dict):
             continue
