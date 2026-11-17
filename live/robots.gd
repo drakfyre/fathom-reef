@@ -607,7 +607,8 @@ func _notification(what: int) -> void:
 
 
 func _load() -> void:
-	for path in [save_path, save_path + ".bak"]:
+	# the phone build ships a copy of the headset's training as a starting point
+	for path in [save_path, save_path + ".bak", "res://phone/seed_" + save_path.get_file()]:
 		if FileAccess.file_exists(path):
 			var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 			if d is Dictionary:

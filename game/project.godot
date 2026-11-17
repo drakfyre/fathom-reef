@@ -6,10 +6,13 @@ config_version=5
 config/name="Fathom Reef"
 config/description="A cozy underwater reef full of cute little fish (Quest, OpenXR)"
 run/main_scene="res://main.tscn"
+run/main_scene.phone="res://phone.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
 
 [display]
+
+window/handheld/orientation.phone=4
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
@@ -30,6 +33,7 @@ anti_aliasing/quality/msaa_3d=2
 [xr]
 
 openxr/enabled=true
+openxr/enabled.phone=false
 openxr/foveation_level=3
 openxr/foveation_dynamic=true
 shaders/enabled=true
