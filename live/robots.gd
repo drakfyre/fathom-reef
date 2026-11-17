@@ -73,7 +73,9 @@ class Species:
 	var t := 0.0
 	var record := -999.0
 	var record_genome := PackedFloat32Array()
-	var history: Array = []       # best distance per generation
+	var history: Array = []       # best distance of every generation (whole run)
+	var scores: Array = []        # every robot's distance, every generation
+	var trained := 0.0            # seconds of training so far
 	var n_in := 0
 	var n_out := 0
 	var fall_h := 0.0
@@ -478,8 +480,11 @@ func _evolve(s: Species) -> void:
 	order.sort_custom(func(a: int, b: int) -> bool: return s.robots[a].fitness > s.robots[b].fitness)
 	var best: Robot = s.robots[order[0]]
 	s.history.append(best.fitness)
-	if s.history.size() > 60:
-		s.history.remove_at(0)
+	var all: Array = []
+	for r: Robot in s.robots:
+		all.append(snappedf(r.fitness, 0.001))
+	s.scores.append(all)
+	s.trained += s.t
 	if best.fitness > s.record:
 		s.record = best.fitness
 		s.record_genome = best.genome.duplicate()
@@ -532,7 +537,7 @@ func _update_board() -> void:
 	chart_mesh.surface_add_vertex(Vector3(0, 0, 0))
 	chart_mesh.surface_add_vertex(Vector3(0, 1.2, 0))
 	for s: Species in species.values():
-		var hist: Array = s.history
+		var hist: Array = s.history.slice(-60)
 		chart_mesh.surface_set_color(s.color)
 		for i in range(1, hist.size()):
 			var a := Vector3((i - 1) / 59.0 * 4.0, clampf(hist[i - 1], 0.0, 6.0) / 6.0 * 1.2, 0)
@@ -543,32 +548,57 @@ func _update_board() -> void:
 
 
 func _save() -> void:
-	var d := {}
+	## Everything needed to carry on later: every network's weights (the whole current generation,
+	## plus the all-time best), and the full history. Written to a temp file first, then swapped
+	## in, with the previous save kept as a .bak, so a crash mid-write can't lose the training.
+	var d := {"format": 2, "saved": Time.get_datetime_string_from_system(), "hidden": HIDDEN}
 	for s: Species in species.values():
 		var gs: Array = []
 		for g: PackedFloat32Array in s.genomes:
 			gs.append(Array(g))
-		d[s.name] = {"gen": s.gen, "record": s.record, "history": s.history, "genomes": gs,
+		d[s.name] = {"gen": s.gen, "record": s.record, "history": s.history, "scores": s.scores,
+				"trained_s": s.trained, "inputs": s.n_in, "outputs": s.n_out, "genomes": gs,
 				"record_genome": Array(s.record_genome)}
-	var f := FileAccess.open(SAVE, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(d))
+	var f := FileAccess.open(SAVE + ".tmp", FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(d, "", false, true))
+	f.close()
+	if FileAccess.file_exists(SAVE):
+		DirAccess.rename_absolute(SAVE, SAVE + ".bak")
+	DirAccess.rename_absolute(SAVE + ".tmp", SAVE)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if not species.is_empty():
+			_save()
 
 
 func _load() -> void:
-	if not FileAccess.file_exists(SAVE):
-		return
-	var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE))
-	if not d is Dictionary:
-		return
+	for path in [SAVE, SAVE + ".bak"]:
+		if FileAccess.file_exists(path):
+			var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+			if d is Dictionary:
+				_apply(d)
+				if main:
+					main.link.add_line("robots: resumed training from %s" % path.get_file())
+				return
+
+
+func _apply(d: Dictionary) -> void:
+	if int(d.get("hidden", HIDDEN)) != HIDDEN:
+		return   # a different network shape: start fresh
 	for nm: String in d:
-		if not species.has(nm):
+		if not species.has(nm) or not d[nm] is Dictionary:
 			continue
 		var s: Species = species[nm]
 		var e: Dictionary = d[nm]
 		s.gen = int(e.get("gen", 0))
 		s.record = float(e.get("record", -999.0))
 		s.history = e.get("history", [])
+		s.scores = e.get("scores", [])
+		s.trained = float(e.get("trained_s", 0.0))
 		s.record_genome = PackedFloat32Array(e.get("record_genome", []))
 		for g: Array in e.get("genomes", []):
 			s.genomes.append(PackedFloat32Array(g))

@@ -1,25 +1,20 @@
 extends RefCounted
+## Save/resume check: run until both species finish a round, rebuild the gym, compare.
 func run(t, main, gym) -> void:
-	await t.frames(5)
-	var A: Transform3D = gym.arena.global_transform
-	await t.shot("gym_spawn", A * Vector3(-3.0, 1.4, 5.5), A * Vector3(-3.0, 0.3, -1.0))
-	var err := {"spider": [0.0, 0], "humanoid": [0.0, 0]}
-	for k in 300:
+	while gym.species["humanoid"].gen < 1 or gym.species["spider"].gen < 1:
 		await t.process_frame
-		if k > 60 and k % 10 == 0:
-			for s in gym.species.values():
-				for r in s.robots:
-					if r.alive:
-						for jj in r.joints:
-							err[s.name][0] += absf(jj.target - jj.angle())
-							err[s.name][1] += 1
-	for nm in err:
-		print("tracking error %s: %.3f rad" % [nm, err[nm][0] / maxf(err[nm][1], 1)])
+	var before := {}
 	for s in gym.species.values():
-		var f: Array = []
-		for r in s.robots:
-			f.append("%.2f%s" % [r.fitness, "" if r.alive else "x"])
-		print(s.name, " t=%.1f fitness " % s.t, f)
-	await t.shot("gym_run", A * Vector3(-2.0, 1.6, 5.0), A * Vector3(-2.5, 0.4, -1.0))
-	await t.shot("gym_humanoids", A * Vector3(-1.0, 1.5, 1.0), A * Vector3(-3.4, 0.9, -3.0))
-	await t.shot("gym_spiders", A * Vector3(-2.4, 0.9, 4.4), A * Vector3(-3.4, 0.3, 2.0))
+		before[s.name] = [s.gen, s.genomes[1].duplicate(), s.history.size(), s.scores.size()]
+	var code := FileAccess.get_file_as_string(t.args[0])
+	main.link._run("robots", code, false)
+	await t.frames(3)
+	var g2 = main.link.live_root.get_node("robots")
+	var ok := true
+	for s in g2.species.values():
+		var b: Array = before[s.name]
+		var same: bool = s.gen == b[0] and s.genomes[1] == b[1] and s.history.size() == b[2] and s.scores.size() == b[3] \
+				and s.robots[1].genome == b[1]
+		print("%s resumed gen %d (was %d), weights identical: %s, history %d, scores %d" % [s.name, s.gen, b[0], s.genomes[1] == b[1], s.history.size(), s.scores.size()])
+		ok = ok and same
+	print("RESUME ", "PASS" if ok else "FAIL")
