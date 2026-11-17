@@ -74,6 +74,11 @@ func _ready() -> void:
 	camera.add_child(reef.make_snow())
 	# the same live link as the headset (127.0.0.1:34960 on the phone; reach it with adb forward).
 	# Its 3D board is hidden; the lines show in the log panel instead.
+	# The gym and timeline scripts ship inside the app. Older copies that the live link saved in
+	# user://live (e.g. during a training sync) would be restored over them and can be out of step
+	# with the timeline, so they are removed first. Training data (user://robots*.json) is kept.
+	for nm in ["robots", "robots_v2", "timeline"]:
+		DirAccess.remove_absolute("user://live/%s.gd" % nm)
 	link = Link.new()
 	link.main = self
 	add_child(link)

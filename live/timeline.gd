@@ -96,8 +96,8 @@ void fragment() {
 
 func _snapshots(gym: Node) -> Array:
 	var s = gym.species.get(species_name)
-	if s == null or s.timeline.is_empty():
-		return []
+	if s == null or not "timeline" in s or s.timeline.is_empty():
+		return []   # no snapshots yet (or an older gym script without a timeline)
 	var tl: Array = s.timeline
 	if tl.size() <= LANES:
 		return tl.duplicate()
