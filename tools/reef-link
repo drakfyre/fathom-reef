@@ -1,0 +1,44 @@
+#!/data/data/com.termux/files/usr/bin/python3 -I
+"""Talks to the running Fathom Reef app over 127.0.0.1:34960 (same headset).
+  reef-link log "text"            add a line to the in-world build log
+  reef-link run NAME FILE.gd      build FILE.gd into the scene as live node NAME
+  reef-link rm NAME | list | pose
+  reef-link eval "expr"           evaluate on the main node (fish, reef, sfx, hands, link...)
+  reef-link shot OUT.png          what the headset shows"""
+import base64, json, socket, sys
+
+def call(msg, timeout=20):
+    s = socket.create_connection(("127.0.0.1", 34960), timeout=timeout)
+    s.sendall((json.dumps(msg) + "\n").encode())
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = s.recv(1 << 20)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+    return json.loads(buf)
+
+a = sys.argv[1:]
+if not a:
+    sys.exit(__doc__)
+c = a[0]
+if c == "log":
+    r = call({"cmd": "log", "text": " ".join(a[1:])})
+elif c == "run":
+    r = call({"cmd": "run", "name": a[1], "code": open(a[2]).read()})
+elif c == "rm":
+    r = call({"cmd": "rm", "name": a[1]})
+elif c in ("list", "pose"):
+    r = call({"cmd": c})
+elif c == "eval":
+    r = call({"cmd": "eval", "expr": " ".join(a[1:])})
+elif c == "shot":
+    r = call({"cmd": "shot"})
+    if r.get("ok"):
+        open(a[1], "wb").write(base64.b64decode(r.pop("png")))
+        r["saved"] = a[1]
+else:
+    sys.exit(__doc__)
+print(json.dumps(r))
+sys.exit(0 if r.get("ok") else 1)

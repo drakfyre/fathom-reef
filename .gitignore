@@ -1,0 +1,9 @@
+build/
+*.apk
+*.idsig
+*.keystore
+*.jks
+game/.godot/
+third_party/openxr_loader/aar/
+third_party/openxr_loader/*.aar
+shots/
