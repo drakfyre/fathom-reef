@@ -42,7 +42,7 @@ func _ready() -> void:
 func _make(length: float, gen: Callable) -> AudioStreamWAV:
 	var n := int(length * RATE)
 	var data := PackedByteArray()
-	data.resize(n * 2)
+	data.resize((n + 256) * 2)   # zeroed tail: room for the mixer's interpolation look-ahead
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(length)
 	for i in n:
@@ -71,13 +71,18 @@ func _ambient_loop() -> AudioStreamWAV:
 		lp2 += (lp1 - lp2) * 0.05
 		var t := float(i) / RATE
 		buf[i] = lp2 * 6.0 * (0.75 + 0.25 * sin(TAU * t / secs * 2.0))
+	# PAD extra samples after loop_end repeat the loop start: the mixer interpolates a few
+	# samples past loop_end when it wraps, and without this it read off the end of the buffer
+	# (SIGSEGV in the AudioTrack thread on a motorola razr, right at the 8 s wrap).
+	var pad := 256
 	var data := PackedByteArray()
-	data.resize(n * 2)
-	for i in n:
-		var v := buf[i]
-		if i < fade:
-			var k := float(i) / fade
-			v = buf[i] * k + buf[n + i] * (1.0 - k)
+	data.resize((n + pad) * 2)
+	for i in n + pad:
+		var j := i % n
+		var v := buf[j]
+		if j < fade:
+			var k := float(j) / fade
+			v = buf[j] * k + buf[n + j] * (1.0 - k)
 		data.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 30000.0))
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
