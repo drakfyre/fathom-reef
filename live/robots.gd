@@ -8,13 +8,19 @@ extends Node3D
 ## kept, copied with small random changes (mutations), and the next generation tries again.
 ## Progress is saved, so training carries on next time the reef starts.
 
-const SAVE := "user://robots.json"
+## Two gyms can run side by side. The live node's name picks the rules:
+##   "robots"    = classic rules: distance moved (plus a small bonus for staying up)
+##   "robots_v2" = new rules: balance first (progress only counts while upright, a fall costs
+##                 points, a big reward for staying up) and an energy cost for motor effort
 const STAGE := 3        # 1 = stage + robots standing still, 2 = random networks, 3 = evolution on
 const HIDDEN := 16
 const START_X := -3.6
 const ANGLE_SIGN := -1.0 # flips motor direction if the physics engine measures angles the other way
 
 var main
+var rules := 1
+var save_path := "user://robots.json"
+var tag := ""
 var arena: Node3D
 var species := {}
 var floor_mat: ShaderMaterial
@@ -57,6 +63,9 @@ class Robot:
 	var fitness := 0.0
 	var alive := true
 	var upright := 0.0
+	var progress := 0.0   # rules 2: distance at the last moment it was properly upright
+	var energy := 0.0
+	var fell := false
 	var phase := 0.0
 	var lane_z := 0.0
 
@@ -85,6 +94,9 @@ class Species:
 # ---------------------------------------------------------------- setup
 
 func _ready() -> void:
+	rules = 2 if String(name).ends_with("_v2") else 1
+	save_path = "user://robots_v2.json" if rules == 2 else "user://robots.json"
+	tag = "[new rules] " if rules == 2 else "[classic] "
 	rng.randomize()
 	var head: Transform3D = main.head_transform() if main else Transform3D(Basis(), Vector3(0, 1.6, 0))
 	var f := -head.basis.z
@@ -94,8 +106,14 @@ func _ready() -> void:
 	add_child(arena)
 	# +X of the arena = the player's right (the way robots walk), -Z = away from the player
 	var right := f.cross(Vector3.UP)
-	var c := head.origin + f * 6.0
-	arena.global_transform = Transform3D(Basis(right, Vector3.UP, -f), Vector3(c.x, 0.9, c.z))
+	# the two gyms stand side by side: classic on the left, new rules on the right
+	var other := get_parent().get_node_or_null("robots" if rules == 2 else "robots_v2") if get_parent() else null
+	if other and other.get("arena") and is_instance_valid(other.arena):
+		var oxf: Transform3D = other.arena.global_transform
+		arena.global_transform = oxf.translated_local(Vector3(10.0 if rules == 2 else -10.0, 0, 0))
+	else:
+		var c := head.origin + f * 7.0 + right * (5.0 if rules == 2 else -5.0)
+		arena.global_transform = Transform3D(Basis(right, Vector3.UP, -f), Vector3(c.x, 0.9, c.z))
 	_build_stage()
 	var sp := Species.new()
 	sp.name = "spider"
@@ -459,9 +477,22 @@ func _physics_process(dt: float) -> void:
 			if r.alive:
 				if lp.y < s.fall_h or up < 0.25:
 					r.alive = false   # fell over: its score is frozen here
-				else:
+					r.fell = true
+				elif rules == 1:
 					r.upright += dt
 					r.fitness = (lp.x - r.start.x) - absf(lp.z - r.lane_z) * 0.3 + r.upright / s.episode * 0.5
+				else:
+					# progress only counts while properly upright (no lunging for distance)
+					var tall: bool = up > 0.8 and lp.y > (0.8 if s.name == "humanoid" else 0.18)
+					if tall:
+						r.upright += dt
+						r.progress = lp.x - r.start.x
+					for jj: Joint in r.joints:
+						r.energy += absf(jj.speed()) * dt * 0.001
+					var stay := 1.5 if s.name == "humanoid" else 0.5
+					r.fitness = r.progress - absf(lp.z - r.lane_z) * 0.3 + r.upright / s.episode * stay - r.energy
+				if rules == 2 and r.fell:
+					r.fitness -= 1.0 if s.name == "humanoid" else 0.5
 			if STAGE >= 2 and r.alive and tick % 3 == 0:
 				var out := _forward(s, r.genome, _sense(s, r))
 				for k in r.joints.size():
@@ -489,7 +520,7 @@ func _evolve(s: Species) -> void:
 		s.record = best.fitness
 		s.record_genome = best.genome.duplicate()
 	if main:
-		main.link.add_line("%s gen %d: best %.2f m  (record %.2f m)" % [s.name, s.gen + 1, best.fitness, s.record])
+		main.link.add_line(tag + "%s gen %d: best %.2f m  (record %.2f m)" % [s.name, s.gen + 1, best.fitness, s.record])
 	var parents: Array = []
 	for k in maxi(2, s.pop / 2):
 		parents.append(s.robots[order[k]].genome)
@@ -523,7 +554,7 @@ func _mutate(g: PackedFloat32Array, sigma: float) -> PackedFloat32Array:
 # ---------------------------------------------------------------- scoreboard + saving
 
 func _update_board() -> void:
-	var lines: Array[String] = ["ROBOT GYM  -  learning to walk right  ->"]
+	var lines: Array[String] = ["ROBOT GYM  -  NEW RULES: balance first, energy counts  ->" if rules == 2 else "ROBOT GYM  -  CLASSIC RULES: distance  ->"]
 	for s: Species in species.values():
 		var last: float = s.history[-1] if not s.history.is_empty() else 0.0
 		lines.append("%s x%d   generation %d   last best %.2f m   record %.2f m" %
@@ -559,14 +590,14 @@ func _save() -> void:
 		d[s.name] = {"gen": s.gen, "record": s.record, "history": s.history, "scores": s.scores,
 				"trained_s": s.trained, "inputs": s.n_in, "outputs": s.n_out, "genomes": gs,
 				"record_genome": Array(s.record_genome)}
-	var f := FileAccess.open(SAVE + ".tmp", FileAccess.WRITE)
+	var f := FileAccess.open(save_path + ".tmp", FileAccess.WRITE)
 	if f == null:
 		return
 	f.store_string(JSON.stringify(d, "", false, true))
 	f.close()
-	if FileAccess.file_exists(SAVE):
-		DirAccess.rename_absolute(SAVE, SAVE + ".bak")
-	DirAccess.rename_absolute(SAVE + ".tmp", SAVE)
+	if FileAccess.file_exists(save_path):
+		DirAccess.rename_absolute(save_path, save_path + ".bak")
+	DirAccess.rename_absolute(save_path + ".tmp", save_path)
 
 
 func _notification(what: int) -> void:
@@ -576,13 +607,13 @@ func _notification(what: int) -> void:
 
 
 func _load() -> void:
-	for path in [SAVE, SAVE + ".bak"]:
+	for path in [save_path, save_path + ".bak"]:
 		if FileAccess.file_exists(path):
 			var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 			if d is Dictionary:
 				_apply(d)
 				if main:
-					main.link.add_line("robots: resumed training from %s" % path.get_file())
+					main.link.add_line(tag + "resumed training from %s" % path.get_file())
 				return
 
 

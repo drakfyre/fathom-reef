@@ -32,7 +32,8 @@ func _go() -> void:
 		quit(1)
 		return
 	var node: Node3D = main.link.live_root.get_node(args[1])
-	var sc := load(args[0].get_basename() + "_test.gd") if FileAccess.file_exists(args[0].get_basename() + "_test.gd") else null
+	var tp: String = args[3] if args.size() > 3 else args[0].get_basename() + "_test.gd"
+	var sc := load(tp) if FileAccess.file_exists(tp) else null
 	if sc:
 		await sc.new().run(self, main, node)
 	quit()
