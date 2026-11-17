@@ -548,7 +548,8 @@ func _step_leaf(dt: float, follow: float) -> void:
 	leaf_mat.set_shader_parameter("curl", -leaf_dir * sin(PI * leaf_t) * 1.3)
 
 
-func _process(dt: float) -> void:
+func _process(scaled_dt: float) -> void:
+	var dt := scaled_dt / Engine.time_scale   # real time, even while the robots fast-forward
 	age += dt
 	# the cover swings open once the pages are ready
 	if ready_pages and open_t < 1.0:

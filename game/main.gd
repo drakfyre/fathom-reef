@@ -11,6 +11,7 @@ const Sfx := preload("res://sfx.gd")
 const Link := preload("res://link.gd")
 const HANDS := ["left_hand", "right_hand"]
 const TIP := Vector3(0, 0, -0.05)
+const BASE_TICKS := 90
 
 
 class Hand:
@@ -113,6 +114,18 @@ func _start_xr() -> void:
 	else:
 		xr = null
 		print("OpenXR not available: running in desktop mode")
+
+
+func set_sim_speed(k: float) -> void:
+	## Fast-forward for physics (the robots) without bigger physics steps: time runs k times faster
+	## AND physics ticks k times as often, so every step is still exactly 1/90 s of simulated time.
+	## Fish, particles, swimming and UI use real time (see _process and the particle speed_scale).
+	k = clampf(k, 0.25, 16.0)
+	Engine.time_scale = k
+	Engine.physics_ticks_per_second = int(round(BASE_TICKS * k))
+	Engine.max_physics_steps_per_frame = maxi(4, int(ceil(k)) + 2)
+	for n in find_children("*", "CPUParticles3D", true, false):
+		(n as CPUParticles3D).speed_scale = 1.0 / k
 
 
 func head_transform() -> Transform3D:
@@ -255,7 +268,9 @@ func _on_nibble(hand: int, p: Vector3) -> void:
 	buzz(hand, 0.35, 0.06)
 
 
-func _process(dt: float) -> void:
+func _process(scaled_dt: float) -> void:
+	# fast-forward (set_sim_speed) only speeds up physics; everything here runs on real time
+	var dt := scaled_dt / Engine.time_scale
 	age += dt
 	if xr != null:
 		_read_xr()

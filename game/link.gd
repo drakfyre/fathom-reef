@@ -118,7 +118,7 @@ func add_line(s: String) -> void:
 
 
 func _process(dt: float) -> void:
-	clock += dt
+	clock += dt / Engine.time_scale
 	while server.is_listening() and server.is_connection_available():
 		peers.append(server.take_connection())
 		bufs.append(PackedByteArray())
