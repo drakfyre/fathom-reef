@@ -1,6 +1,16 @@
 extends Node3D
 ## Live link: a tiny local server (127.0.0.1:34960, this device only) that lets Claude, running
 ## in Termux on the same headset, build into the running app while you are inside it.
+##
+## SECURITY: the link can run code in the app, so it is OFF unless one of these is true:
+##   - a dev build: game/link_token.txt (git-ignored, random secret) is exported with the
+##     "Quest Dev" / "Phone Dev" presets; tools/reef-link reads the same file
+##   - the "trainer" build: listens on the local network, 6-digit code shown on screen
+##   - running from the Godot editor, or started with --live-link: random 6-digit code printed
+##     to the console (and shown on the build-log board)
+## Every request must carry the code ("token"). Anything that is not a JSON object with the
+## right code (e.g. an HTTP request a web page sends to localhost) closes the connection at
+## once, and three wrong codes switch the link off until the app restarts.
 ## One JSON object per line in each direction:
 ##   {"cmd":"log","text":"..."}               add a line to the build-log board
 ##   {"cmd":"run","name":"x","code":"..."}    compile a GDScript (extends Node/Node3D) and add it
@@ -32,7 +42,11 @@ var clock := 0.0
 var shot_waiters: Array[StreamPeerTCP] = []
 # PC trainer build: listens on the whole local network, so every request must carry a 6-digit
 # code shown on screen; three wrong codes close the link until the app is restarted.
+const TOKEN_FILE := "res://link_token.txt"
+const MAX_BUF := 8 * 1024 * 1024
 var lan := OS.has_feature("trainer") or OS.get_environment("REEF_TRAINER") == "1"
+var enabled := lan or FileAccess.file_exists(TOKEN_FILE) or OS.has_feature("editor") \
+		or "--live-link" in OS.get_cmdline_args() or "--live-link" in OS.get_cmdline_user_args()
 var token := ""
 var bad_codes := 0
 
@@ -42,16 +56,19 @@ func _ready() -> void:
 	live_root.name = "Live"
 	main.add_child.call_deferred(live_root)
 	_make_board()
-	var host := "127.0.0.1"
-	if lan:
+	_restore.call_deferred()
+	if not enabled:
+		return   # published builds: no server at all
+	var host := "*" if lan else "127.0.0.1"
+	if FileAccess.file_exists(TOKEN_FILE) and not lan:
+		token = FileAccess.get_file_as_string(TOKEN_FILE).strip_edges()
+	if token.length() < 6:
 		var b := Crypto.new().generate_random_bytes(4)
 		token = "%06d" % (b.decode_u32(0) % 1000000)
-		host = "*"
+		print("live link code: ", token)
+		add_line("live link code: " + token)
 	var err := server.listen(PORT, host)
-	if lan:
-		print("trainer link code: ", token)
 	add_line("link %s on %s:%d" % ["listening" if err == OK else "FAILED (%d)" % err, host, PORT])
-	_restore.call_deferred()
 
 
 func _make_board() -> void:
@@ -147,6 +164,9 @@ func _process(dt: float) -> void:
 			var got := p.get_partial_data(n)
 			if got[0] == OK:
 				bufs[i].append_array(got[1])
+		if bufs[i].size() > MAX_BUF:
+			_drop(i)
+			continue
 		while true:
 			var nl := bufs[i].find(10)
 			if nl < 0:
@@ -155,6 +175,10 @@ func _process(dt: float) -> void:
 			bufs[i] = bufs[i].slice(nl + 1)
 			last_msg = clock
 			var reply: Dictionary = _handle(line)
+			if reply.has("_close"):
+				_send(p, {"ok": false, "error": reply._close})
+				_drop(i)
+				break
 			if reply.has("_shot"):
 				shot_waiters.append(p)
 				if shot_waiters.size() == 1:
@@ -166,18 +190,27 @@ func _process(dt: float) -> void:
 			else Color(0.3, 0.3, 0.35)
 
 
+func _drop(i: int) -> void:
+	peers[i].disconnect_from_host()
+	peers.remove_at(i)
+	bufs.remove_at(i)
+
+
 func _handle(line: String) -> Dictionary:
+	## Anything that is not a JSON object carrying the right code ends the connection.
+	if not line.begins_with("{"):
+		return {"_close": "not a link message"}
 	var msg: Variant = JSON.parse_string(line)
 	if not msg is Dictionary:
-		return {"ok": false, "error": "bad json"}
-	if lan and str(msg.get("token", "")) != token:
+		return {"_close": "bad json"}
+	if token == "" or str(msg.get("token", "")) != token:
 		bad_codes += 1
 		if bad_codes >= 3:
 			server.stop()
 			for p in peers:
 				p.disconnect_from_host()
 			add_line("link CLOSED after 3 wrong codes; restart the app to reopen it")
-		return {"ok": false, "error": "wrong code"}
+		return {"_close": "wrong code"}
 	var cmd: String = msg.get("cmd", "")
 	match cmd:
 		"log":

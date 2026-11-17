@@ -9,3 +9,5 @@ third_party/openxr_loader/*.aar
 shots/
 reefgym.apk
 tools/.private_redact.json
+game/link_token.txt
+*-dev.apk

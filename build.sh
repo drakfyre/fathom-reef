@@ -6,6 +6,15 @@
 # Needs: godot 4.7.2 + Android export templates, apktool, zipalign, apksigner, curl.
 set -euo pipefail
 cd "$(dirname "$0")"
+# No arguments: build both the public APK (live link off) and the dev APK (live link on, with the
+# secret from game/link_token.txt). With arguments: ./build.sh <preset> <output.apk>
+if [ $# -eq 0 ]; then
+  "$0" Quest fathomreef.apk
+  [ -f game/link_token.txt ] && "$0" "Quest Dev" fathomreef-dev.apk
+  exit 0
+fi
+PRESET=$1
+OUT=$2
 LOADER_VER=1.1.65
 LOADER_DIR=third_party/openxr_loader
 step() { printf '\n[%s/4] %s\n' "$1" "$2"; }
@@ -20,7 +29,7 @@ fi
 
 step 2 "Exporting from Godot"
 rm -rf build && mkdir -p build
-godot --headless --path game --export-release Quest ../build/godot.apk 2>&1 \
+godot --headless --path game --export-release "$PRESET" ../build/godot.apk 2>&1 \
   | grep -E 'ERROR|rror:' | grep -v daemon || true
 [ -f build/godot.apk ] || { echo "Godot export failed" >&2; exit 1; }
 
@@ -41,6 +50,6 @@ step 4 "Signing"
 [ -f debug.keystore ] || keytool -genkeypair -keystore debug.keystore -storepass android -keypass android \
   -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Fathom Reef Debug" >/dev/null
 apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android \
-  --out fathomreef.apk build/aligned.apk
-rm -f fathomreef.apk.idsig
-echo "built $(pwd)/fathomreef.apk ($(du -h fathomreef.apk | cut -f1))"
+  --out "$OUT" build/aligned.apk
+rm -f "$OUT.idsig"
+echo "built $(pwd)/$OUT ($(du -h "$OUT" | cut -f1))"

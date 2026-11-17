@@ -7,12 +7,17 @@
   reef-link shot OUT.png          what the headset shows
   reef-link put|get user://PATH LOCAL   copy a file into / out of the app
   REEF_PORT=34961 reef-link ...   talk to the phone through `adb forward tcp:34961 tcp:34960`
-  REEF_HOST=<pc ip> REEF_TOKEN=<code> reef-link ...   talk to the PC trainer build"""
+  REEF_HOST=<pc ip> REEF_TOKEN=<code> reef-link ...   talk to the PC trainer build
+  The code: REEF_TOKEN, else game/link_token.txt (dev builds). Builds started with --live-link or
+  from the Godot editor print a random code to the console instead."""
 import base64, json, os, socket, sys
 
 def call(msg, timeout=20):
-    if os.environ.get("REEF_TOKEN"):
-        msg["token"] = os.environ["REEF_TOKEN"]
+    tok = os.environ.get("REEF_TOKEN")
+    if not tok:   # dev builds: the secret baked in from game/link_token.txt
+        f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "game", "link_token.txt")
+        tok = open(f).read().strip() if os.path.exists(f) else ""
+    msg["token"] = tok
     s = socket.create_connection((os.environ.get("REEF_HOST", "127.0.0.1"), int(os.environ.get("REEF_PORT", "34960"))), timeout=timeout)
     s.sendall((json.dumps(msg) + "\n").encode())
     buf = b""

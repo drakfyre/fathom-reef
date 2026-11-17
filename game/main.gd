@@ -463,9 +463,9 @@ func _run_test() -> void:
 		var side := fw.cross(Vector3.UP).normalized()
 		await _shot("cute_" + s.name, p + side * s.size * 3.2 - fw * s.size * 1.2 + Vector3(0, s.size * 0.4, 0), p)
 	# link: log, eval and run a live script the same way Claude will from Termux
-	var r: Dictionary = link._handle(JSON.stringify({"cmd": "log", "text": "hello from the test"}))
+	var r: Dictionary = link._handle(JSON.stringify({"cmd": "log", "text": "hello from the test", "token": link.token}))
 	_check("link log", r.ok and link.lines[-1].ends_with("hello from the test"))
-	r = link._handle(JSON.stringify({"cmd": "eval", "expr": "fish.fish_count()"}))
+	r = link._handle(JSON.stringify({"cmd": "eval", "expr": "fish.fish_count()", "token": link.token}))
 	_check("link eval (%s)" % r.get("result", r.get("error")), r.ok and int(r.result) == fish.fish_count())
 	var code := "extends Node3D\nvar main\nfunc _ready():\n\tvar m := MeshInstance3D.new()\n\tm.mesh = BoxMesh.new()\n\tadd_child(m)\n\tposition = Vector3(0, 1, -2)\n"
 	r = link._run("test_cube", code, false)
